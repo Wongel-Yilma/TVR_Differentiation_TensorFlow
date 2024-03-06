@@ -1,7 +1,10 @@
 import numpy as np
 import tensorflow as tf
-def TVR_Diff_tf(y,alph = 1,dx = 1):
+
+
+def TVR_Diff_tf(y,alph = 1,dx = None, precondflag = True,diffkernel = 'abs',ep = 1e-6,cgmaxit = 100):
     n=len(y)
+    if dx is None: dx = 1
     d0 = -np.ones(n)/dx
     du = np.ones(n-1)/dx
     dl = np.zeros(n-1)
@@ -15,10 +18,8 @@ def TVR_Diff_tf(y,alph = 1,dx = 1):
         a  =tf.math.reduce_sum(x[1:])/2.0
         b = (tf.math.reduce_sum(x)-tf.cumsum(x)+0.5*x)[1:]
         return tf.concat([tf.reshape(a,[1,1]),b],axis = 0)
-    cgtol= 1e-4
-    diffkernel = 'abs'
-    ep = 10**-4
-    cgmaxit = 100
+    
+    
     u0 = tf.matmul(D,tf.reshape(y,[n,1]),a_is_sparse=True)
     u = tf.identity(u0)
     ofst = y[0]
@@ -30,7 +31,7 @@ def TVR_Diff_tf(y,alph = 1,dx = 1):
             # Linearized diffusion matrix, also approximation of Hessian.
             L = dx *tf.matmul(tf.matmul(DT, Q) , D)
         elif diffkernel == 'sq':
-            L = dx * DT * D
+            L = dx * tf.matmul(DT, D)
         else:
             raise ValueError('Invalid diffkernel value')
 
@@ -38,16 +39,18 @@ def TVR_Diff_tf(y,alph = 1,dx = 1):
         g = AT(A(u)) + ATb + alph * tf.matmul(L, u)
 
         # Prepare to solve linear equation.
-        precondflag = True
-        if precondflag:
-            # Simple preconditioner.
-            P = alph * tf.linalg.diag(tf.linalg.diag_part(L) + 1, 0, n, n)
-        else:
-            P = None
+       
+        
 
         B =tf.linalg.diag(tf.reshape(alph * tf.matmul(L, u) + AT(A(u)),[n]))
-        s = tf.linalg.solve(B,g)
-
+        if precondflag:
+            # Simple preconditioner.
+            P = alph * tf.linalg.diag(tf.linalg.diag_part(L) + 1, k = 0,num_rows = n, num_cols = n)
+            B_p = tf.matmul(tf.linalg.inv(P),B)
+            g_p = tf.matmul(tf.linalg.inv(P),g)
+            s = tf.linalg.solve(B_p,g_p)
+        else:
+            s = tf.linalg.solve(B,g)
         # Updating the solution
         u = u - s
     return u
